@@ -1,5 +1,5 @@
-/* Testprogramm zum Ansteuern eines Alpine-Radios */
-
+/* 
+ * Protocol converter for VW Sharan one wire to Alpine radio */
 /* 
 
 Vol Up    11010111 11011011 10101011 11011011 11010110 11010101
@@ -16,12 +16,21 @@ Band/prog 11010111 11011011 10101011 01101011 11110111 01010101
 
 8ms HIGH + 4.5ms LOW = 12.5ms Prefix
 
-
 */
 
-#define alpPin    10
-#define sharanPin 12
-#define debugLed  13
+#define ATTINY_SETUP
+
+#ifdef ATTINY_SETUP
+  #undef DEBUG
+  #define alpPin    2
+  #define sharanPin 3
+  #define debugLed  0
+#else
+  #define DEBUG
+  #define alpPin    10
+  #define sharanPin 12
+  #define debugLed  13
+#endif
 
 // common commands for alpine and sharan class
 #define CMD_ERROR    0
@@ -30,15 +39,16 @@ Band/prog 11010111 11011011 10101011 01101011 11110111 01010101
 #define CMD_VOL_DOWN 2
 #define CMD_TRK_UP   3
 #define CMD_TRK_DOWN 4
+#define CMD_REPEAT   5
 
 
 class Alpine {
 private:
 
-  void sendToAlpine(boolean cmd[]) {
+  void sendToAlpine(boolean& cmd[]) {
     //first send 8ms high
     digitalWrite(alpPin, HIGH);
-    delayMicroseconds(8000);
+    delayMicroseconds(9000);
     // send 4.5ms low
     digitalWrite(alpPin, LOW);
     delayMicroseconds(4500);
@@ -46,19 +56,34 @@ private:
     for (int i = 0; i <= 47; i++) {
       //send bit for 0.5ms
       digitalWrite(alpPin, cmd[i] ? HIGH : LOW);
-      delayMicroseconds(500);
+      delayMicroseconds(560);
       digitalWrite(alpPin, LOW);
-      delayMicroseconds(500);
+      delayMicroseconds(560);
     }
     // send 41ms low
     digitalWrite(alpPin, LOW);
-    delay(41); 
+    //delay(41); 
   }
 
-  boolean volUp[48] =      {1,1,0,1,0,1,1,1, 1,1,0,1,1,0,1,1, 1,0,1,0,1,0,1,1, 1,1,0,1,1,0,1,1, 1,1,0,1,0,1,1,0, 1,1,0,1,0,1,0,1};
-  boolean volDown[48] =    {1,1,0,1,0,1,1,1, 1,1,0,1,1,0,1,1, 1,0,1,0,1,0,1,1, 0,1,1,0,1,1,0,1, 1,1,1,1,0,1,1,0, 1,1,0,1,0,1,0,1};
-  boolean trkUp[48] =      {1,1,0,1,0,1,1,1, 1,1,0,1,1,0,1,1, 1,0,1,0,1,0,1,1, 1,0,1,1,1,0,1,1, 1,1,0,1,1,0,1,0, 1,1,0,1,0,1,0,1};
-  boolean trkDown[48] =    {1,1,0,1,0,1,1,1, 1,1,0,1,1,0,1,1, 1,0,1,0,1,0,1,1, 0,1,0,1,1,1,0,1, 1,1,1,1,1,0,1,0, 1,1,0,1,0,1,0,1};
+  void sendRepeatCmdToAlpine() {
+    //first send 8ms high
+    digitalWrite(alpPin, HIGH);
+    delayMicroseconds(9000);
+    // send 2.2ms low
+    digitalWrite(alpPin, LOW);
+    delayMicroseconds(2250);
+  
+    // send 600us high
+    digitalWrite(alpPin, HIGH);
+    delayMicroseconds(560);
+    // set to LOW
+    digitalWrite(alpPin, LOW);
+  }
+
+  static const boolean volUp[48];
+  static const boolean volDown[48];
+  static const boolean trkUp[48];
+  static const boolean trkDown[48];
 
 public:
   void sendCmd(int cmd) {
@@ -75,11 +100,20 @@ public:
       case CMD_TRK_DOWN:
         sendToAlpine(trkDown);
         break;
+      case CMD_REPEAT:
+        sendRepeatCmdToAlpine();
+        break;
     }
   }
 
 };
 
+boolean const Alpine::volUp[48] =      {1,1,0,1,0,1,1,1, 1,1,0,1,1,0,1,1, 1,0,1,0,1,0,1,1, 1,1,0,1,1,0,1,1, 1,1,0,1,0,1,1,0, 1,1,0,1,0,1,0,1};
+boolean const Alpine::volDown[48] =    {1,1,0,1,0,1,1,1, 1,1,0,1,1,0,1,1, 1,0,1,0,1,0,1,1, 0,1,1,0,1,1,0,1, 1,1,1,1,0,1,1,0, 1,1,0,1,0,1,0,1};
+boolean const Alpine::trkUp[48] =      {1,1,0,1,0,1,1,1, 1,1,0,1,1,0,1,1, 1,0,1,0,1,0,1,1, 1,0,1,1,1,0,1,1, 1,1,0,1,1,0,1,0, 1,1,0,1,0,1,0,1};
+//                                1 0   0   1 1 1  1 0   1 0   1 1  0   0   0   1 1  0   1 1 0   1 1  1 0   1 0   0    1 0   0   0   1
+
+boolean const Alpine::trkDown[48] =    {1,1,0,1,0,1,1,1, 1,1,0,1,1,0,1,1, 1,0,1,0,1,0,1,1, 0,1,0,1,1,1,0,1, 1,1,1,1,1,0,1,0, 1,1,0,1,0,1,0,1};
 
 class Sharan {
 public:
@@ -110,12 +144,13 @@ private:
    * Wait for the start mark. Wait forever if no start mark is received
    */
   void waitForStartMark() {
+    
     for (;;) {
       int inputLevel;
       do {
         inputLevel=digitalRead(sharanPin);
       } while(inputLevel==HIGH);
-  
+
       // wait 8ms with LOW signal until proper exit of function
       unsigned long lowStart;
       lowStart = micros();
@@ -128,6 +163,9 @@ private:
         return;    
       }
       // otherwise we loop again, waiting for a LOW signal
+      #ifdef DEBUG
+        Serial.println("still HIGH signal");
+      #endif
     }
   }
 
@@ -190,7 +228,7 @@ public:
       // if about 2200us the last command is repeated
       if (duration >= 2000 && duration <= 2400) {
         if (lastCmd != CMD_ERROR) {
-          return lastCmd;      
+          return CMD_REPEAT;      
         }
       } else 
       // if about 4400us a new command transmission starts
@@ -214,6 +252,13 @@ Alpine alpine;
 Sharan sharan;
 
 void setup() {
+  #ifdef DEBUG
+    Serial.begin(57600);
+  #endif
+  #ifdef ARDUINO_AVR_GEMMA
+    OSCCAL=0x41;
+  #endif
+    
   pinMode(alpPin, OUTPUT);
   pinMode(debugLed, OUTPUT);
   pinMode(sharanPin, INPUT);
@@ -228,10 +273,18 @@ void setup() {
   digitalWrite(debugLed,LOW);
 }
 
-int last=-1;
+byte last=-1;
 
 void loop() {
+  #ifdef DEBUG
+    Serial.println("Starting loop");
+  #endif
+
   int cmd=sharan.getSharanCommand();
+  #ifdef DEBUG
+    Serial.print("got cmd ");
+    Serial.println(cmd);
+  #endif
   digitalWrite(debugLed,HIGH);
   alpine.sendCmd(cmd);
   digitalWrite(debugLed,LOW);
