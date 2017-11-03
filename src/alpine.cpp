@@ -1,3 +1,5 @@
+#include <Arduino.h>
+
 /* 
  * Protocol converter for VW Sharan one wire to Alpine radio */
 /* 
@@ -45,7 +47,7 @@ Band/prog 11010111 11011011 10101011 01101011 11110111 01010101
 class Alpine {
 private:
 
-  void sendToAlpine(boolean& cmd[]) {
+  void sendToAlpine(unsigned long cmd) {
     //first send 8ms high
     digitalWrite(alpPin, HIGH);
     delayMicroseconds(9000);
@@ -53,12 +55,19 @@ private:
     digitalWrite(alpPin, LOW);
     delayMicroseconds(4500);
   
-    for (int i = 0; i <= 47; i++) {
+    for (int i = 0; i <= 32; i++) {
       //send bit for 0.5ms
-      digitalWrite(alpPin, cmd[i] ? HIGH : LOW);
-      delayMicroseconds(560);
-      digitalWrite(alpPin, LOW);
-      delayMicroseconds(560);
+      if (bitRead(cmd,i)) {
+        digitalWrite(alpPin, HIGH);
+        delayMicroseconds(560);
+        digitalWrite(alpPin, LOW);
+        delayMicroseconds(1690);
+      } else {
+        digitalWrite(alpPin, HIGH);
+        delayMicroseconds(560);
+        digitalWrite(alpPin, LOW);
+        delayMicroseconds(560);
+      }
     }
     // send 41ms low
     digitalWrite(alpPin, LOW);
@@ -80,10 +89,10 @@ private:
     digitalWrite(alpPin, LOW);
   }
 
-  static const boolean volUp[48];
-  static const boolean volDown[48];
-  static const boolean trkUp[48];
-  static const boolean trkDown[48];
+  const unsigned long volUp   = 0xEB147286;
+  const unsigned long volDown = 0xEA157286;
+  const unsigned long trkUp   = 0xED127286;
+  const unsigned long trkDown = 0xEC137286;
 
 public:
   void sendCmd(int cmd) {
@@ -108,32 +117,21 @@ public:
 
 };
 
-boolean const Alpine::volUp[48] =      {1,1,0,1,0,1,1,1, 1,1,0,1,1,0,1,1, 1,0,1,0,1,0,1,1, 1,1,0,1,1,0,1,1, 1,1,0,1,0,1,1,0, 1,1,0,1,0,1,0,1};
-boolean const Alpine::volDown[48] =    {1,1,0,1,0,1,1,1, 1,1,0,1,1,0,1,1, 1,0,1,0,1,0,1,1, 0,1,1,0,1,1,0,1, 1,1,1,1,0,1,1,0, 1,1,0,1,0,1,0,1};
-boolean const Alpine::trkUp[48] =      {1,1,0,1,0,1,1,1, 1,1,0,1,1,0,1,1, 1,0,1,0,1,0,1,1, 1,0,1,1,1,0,1,1, 1,1,0,1,1,0,1,0, 1,1,0,1,0,1,0,1};
-//                                1 0   0   1 1 1  1 0   1 0   1 1  0   0   0   1 1  0   1 1 0   1 1  1 0   1 0   0    1 0   0   0   1
-
-boolean const Alpine::trkDown[48] =    {1,1,0,1,0,1,1,1, 1,1,0,1,1,0,1,1, 1,0,1,0,1,0,1,1, 0,1,0,1,1,1,0,1, 1,1,1,1,1,0,1,0, 1,1,0,1,0,1,0,1};
-
 class Sharan {
 public:
-  // 32bit values to be compared with the received command. will be initialized in constructor.
-  unsigned long volUpCmd, volDownCmd, trkUpCmd, trkDownCmd;
+  // {0,1,0,0,0,0,0,1, 1,1,1,0,1,0,0,0, 1,0,0,0,0,0,0,0, 0,1,1,1,1,1,1,1, }; 
+  const unsigned long volUpCmd = 0xFE011782;
+  
+  // {0,1,0,0,0,0,0,1, 1,1,1,0,1,0,0,0, 0,0,0,0,0,0,0,0, 1,1,1,1,1,1,1,1, }; 
+  const unsigned long volDownCmd = 0xFF001782;
+  
+  // {0,1,0,0,0,0,0,1, 1,1,1,0,1,0,0,0, 1,1,0,1,0,0,0,0, 0,0,1,0,1,1,1,1, }; 
+  const unsigned long trkUpCmd = 0xF40B1782;
+  
+  // {0,1,0,0,0,0,0,1, 1,1,1,0,1,0,0,0, 0,1,0,1,0,0,0,0, 1,0,1,0,1,1,1,1, }; 
+  const unsigned long trkDownCmd = 0xF50A1782;
   
   Sharan() {
-    // bitwise commands
-    boolean volUp[32] =    {0,1,0,0,0,0,0,1, 1,1,1,0,1,0,0,0, 1,0,0,0,0,0,0,0, 0,1,1,1,1,1,1,1, }; 
-    boolean volDown[32] =  {0,1,0,0,0,0,0,1, 1,1,1,0,1,0,0,0, 0,0,0,0,0,0,0,0, 1,1,1,1,1,1,1,1, }; 
-    boolean trkUp[32] =    {0,1,0,0,0,0,0,1, 1,1,1,0,1,0,0,0, 1,1,0,1,0,0,0,0, 0,0,1,0,1,1,1,1, }; 
-    boolean trkDown[32] =  {0,1,0,0,0,0,0,1, 1,1,1,0,1,0,0,0, 0,1,0,1,0,0,0,0, 1,0,1,0,1,1,1,1, }; 
-
-    // 'compress' them to a 32bit unsigned long for easy comparison
-    for (int i=0; i<32; i++) {
-      bitWrite(volUpCmd,i,volUp[i]);
-      bitWrite(volDownCmd,i,volDown[i]);
-      bitWrite(trkUpCmd,i,trkUp[i]);
-      bitWrite(trkDownCmd,i,trkDown[i]);
-    }
   }
 
 private:
